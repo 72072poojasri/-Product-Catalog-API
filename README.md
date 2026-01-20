@@ -125,6 +125,17 @@ You can:
 - Inspect request and response schemas
 
 ---
+## 📸 API Documentation Screenshots
+
+### Swagger API Documentation
+![Swagger API](docs/Swagger API Documentation.png)
+
+### GET Products API
+![GET Products](docs/GET Products API.png)
+
+### POST Product API
+![POST Product](docs/POST Product API.png)
+
 
 ## 🔐 Rate Limiting
 
