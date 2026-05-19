@@ -58,8 +58,12 @@ const createProduct = async (req, res, next) => {
   try {
     const product = await productService.createProduct(req.body);
 
-    // OPTIONAL: cache invalidation (safe way)
-    // await redisClient.flushAll();
+    // Invalidate paginated product caches
+    const keys = await redisClient.keys("products:*");
+
+    if (keys.length > 0) {
+      await redisClient.del(keys);
+    }
 
     res.status(201).json(product);
   } catch (err) {
@@ -94,16 +98,17 @@ const getProducts = async (req, res, next) => {
   const cacheKey = `products:${limit}:${offset}`;
 
   try {
-    // 1️⃣ Check Redis cache
+    // Check Redis cache
     const cachedProducts = await redisClient.get(cacheKey);
+
     if (cachedProducts) {
       return res.status(200).json(JSON.parse(cachedProducts));
     }
 
-    // 2️⃣ Fetch from DB
+    // Fetch from database
     const products = await productService.getProducts(limit, offset);
 
-    // 3️⃣ Store in Redis
+    // Store in Redis
     await redisClient.setEx(
       cacheKey,
       parseInt(process.env.CACHE_TTL_SECONDS) || 60,
@@ -115,42 +120,133 @@ const getProducts = async (req, res, next) => {
     next(new AppError("Failed to fetch products", 500));
   }
 };
+
+/**
+ * @swagger
+ * /api/v1/products/{productId}:
+ *   get:
+ *     summary: Get product by ID
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Product fetched successfully
+ *       404:
+ *         description: Product not found
+ */
 const getProductById = async (req, res, next) => {
+  const productId = req.params.productId;
+
+  const cacheKey = `product:${productId}`;
+
   try {
-    const product = await productService.getProductById(req.params.productId);
+    // Check Redis cache
+    const cachedProduct = await redisClient.get(cacheKey);
+
+    if (cachedProduct) {
+      return res.status(200).json(JSON.parse(cachedProduct));
+    }
+
+    // Fetch from database
+    const product = await productService.getProductById(productId);
+
+    // Store in Redis
+    await redisClient.setEx(
+      cacheKey,
+      parseInt(process.env.CACHE_TTL_SECONDS) || 60,
+      JSON.stringify(product)
+    );
+
     res.status(200).json(product);
   } catch (err) {
     next(new AppError("Product not found", 404));
   }
 };
+
+/**
+ * @swagger
+ * /api/v1/products/{productId}:
+ *   put:
+ *     summary: Update a product
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Product updated successfully
+ *       404:
+ *         description: Product not found
+ */
 const updateProduct = async (req, res, next) => {
   try {
+    const productId = req.params.productId;
+
     const updatedProduct = await productService.updateProduct(
-      req.params.productId,
+      productId,
       req.body
     );
 
-    // 🔥 CACHE INVALIDATION (IMPORTANT)
-    await redisClient.flushAll();
+    // Delete single product cache
+    await redisClient.del(`product:${productId}`);
+
+    // Delete paginated product caches
+    const keys = await redisClient.keys("products:*");
+
+    if (keys.length > 0) {
+      await redisClient.del(keys);
+    }
 
     res.status(200).json(updatedProduct);
   } catch (err) {
     next(new AppError("Product not found", 404));
   }
 };
+
+/**
+ * @swagger
+ * /api/v1/products/{productId}:
+ *   delete:
+ *     summary: Delete a product
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Product deleted successfully
+ *       404:
+ *         description: Product not found
+ */
 const deleteProduct = async (req, res, next) => {
   try {
-    await productService.deleteProduct(req.params.productId);
+    const productId = req.params.productId;
 
-    // 🔥 CACHE INVALIDATION (IMPORTANT)
-    await redisClient.flushAll();
+    await productService.deleteProduct(productId);
+
+    // Delete single product cache
+    await redisClient.del(`product:${productId}`);
+
+    // Delete paginated product caches
+    const keys = await redisClient.keys("products:*");
+
+    if (keys.length > 0) {
+      await redisClient.del(keys);
+    }
 
     res.status(204).send();
   } catch (err) {
     next(new AppError("Product not found", 404));
   }
 };
-
 
 module.exports = {
   createProduct,
